@@ -81,18 +81,32 @@ int _tmain(int argc, CHAR *argv[]) {
 
 // Parse command line parameters and store them in given config.
 int ParseParameters(int argc, CHAR* argv[], Config* pconfig) {
-    if(!argv) return - 1;
-    if(!pconfig) return - 2;
-
-    if (argc == 1) 
-    ErrorExit(TEXT("Please specify an input file.\n"));
-
-    pconfig->process_cmd_line_ = argv[1];
-
-    pconfig->process_wait_timeout_ = 7000;
-    if(argc > 2) {
-        pconfig->process_wait_timeout_ = atoi(argv[2]);
+    if (argc < 3) {
+        return -1;
     }
+
+    if (!pconfig) {
+        return -2;
+    }
+
+    pconfig->process_wait_timeout_ = atoi(argv[1]);
+    pconfig->process_cmd_line_ = strdup(argv[2]);
+    size_t currsize = strlen(pconfig->process_cmd_line_) + 1;
+
+    for (int i = 3; i < argc; ++i) {
+        size_t newsize = currsize + strlen(argv[i]) + 1;
+        pconfig->process_cmd_line_ = realloc(pconfig->process_cmd_line_,
+                                             newsize);
+        if (pconfig->process_cmd_line_ == NULL) {
+            fprintf(stderr, "Failed to allocate buffer\n");
+            return -3;
+        }
+        sprintf(pconfig->process_cmd_line_ + currsize - 1, " %s",
+                argv[i]);
+        currsize = newsize;
+    }
+
+    pconfig->process_cmd_line_[currsize - 1] = '\0';
 
     return 0;
 }
