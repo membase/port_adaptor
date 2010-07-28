@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <windows.h> 
 #include <tchar.h>
 #include <conio.h>
@@ -5,8 +6,6 @@
 #include <io.h>
 
 #define BUFSIZE 4096 
-//#define DEBUG
-//#define SHOW_MESSAGE_BOX_ON_ERROR_EXIT
 
 // struct to hold congig information.
 typedef struct ConfigType
@@ -17,79 +16,64 @@ typedef struct ConfigType
     CHAR *process_cmd_line_;
 } Config;
 
-HANDLE g_child_std_in_rd = NULL;
-HANDLE g_child_std_in_wr = NULL;
-HANDLE g_child_std_out_rd = NULL;
-HANDLE g_child_std_out_wr = NULL;
+static HANDLE g_child_std_in_rd = NULL;
+static HANDLE g_child_std_in_wr = NULL;
+static HANDLE g_child_std_out_rd = NULL;
+static HANDLE g_child_std_out_wr = NULL;
 
-Config g_config;
-PROCESS_INFORMATION* g_pchild_proc_info = NULL; 
-FILE* g_log_file;
+static Config g_config;
+static PROCESS_INFORMATION* g_pchild_proc_info = NULL;
+static FILE* g_log_file;
 
-int ParseParameters(int argc, CHAR* argv[], Config* pconfig);
-BOOL CreateChildProcess(Config* pconfig); 
-void TearDownChildProcess(PROCESS_INFORMATION* pproc_info, Config* pconfig);
-void WriteToPipe(HANDLE input_file); 
-void TrackChildProcess(PROCESS_INFORMATION* pchild_proc_info, Config* pconfig); 
-BOOL WINAPI OnConsoleCtrlEvent(DWORD ctrl_type);
-void ReleaseAllOnExit();
-void ErrorExit(PTSTR); 
-void PrintDebug(const char* debug_Info, ...);
+static int ParseParameters(int argc, CHAR* argv[], Config* pconfig);
+static BOOL CreateChildProcess(Config* pconfig);
+static void TearDownChildProcess(PROCESS_INFORMATION* pproc_info, Config* pconfig);
+static void TrackChildProcess(PROCESS_INFORMATION* pchild_proc_info, Config* pconfig);
+static BOOL WINAPI OnConsoleCtrlEvent(DWORD ctrl_type);
+static void ReleaseAllOnExit(void);
+static void ErrorExit(PTSTR);
 
 int _tmain(int argc, CHAR *argv[]) {
     SECURITY_ATTRIBUTES saAttr; 
 
-    if(!SetConsoleCtrlHandler(OnConsoleCtrlEvent, TRUE)) {
-        PrintDebug("Parent: Failed to subscribe to console ctrl events");
+    if (!SetConsoleCtrlHandler(OnConsoleCtrlEvent, TRUE)) {
+        fprintf(stderr, "Parent: Failed to subscribe to console ctrl events\n");
         return -1;
     }
 
-    if(ParseParameters(argc, argv, &g_config) != 0) {
-        PrintDebug("Failed to parse arguments");
+    if (ParseParameters(argc, argv, &g_config) != 0) {
+        fprintf(stderr, "Failed to parse arguments\n");
         return -1;
     }
-
-    PrintDebug("\n->Start of parent execution.\n");
 
     // Set the bInheritHandle flag so pipe handles are inherited. 
-
     saAttr.nLength = sizeof(SECURITY_ATTRIBUTES); 
     saAttr.bInheritHandle = TRUE; 
     saAttr.lpSecurityDescriptor = NULL; 
 
     // Create a pipe for the child process's STDOUT. 
-    if ( ! CreatePipe(&g_child_std_out_rd, &g_child_std_out_wr, &saAttr, 0) ) {
+    if (!CreatePipe(&g_child_std_out_rd, &g_child_std_out_wr, &saAttr, 0)) {
         ErrorExit(TEXT("StdoutRd CreatePipe")); 
     }
 
     // Ensure the read handle to the pipe for STDOUT is not inherited.
-    if ( ! SetHandleInformation(g_child_std_out_rd, HANDLE_FLAG_INHERIT, 0) ) {
+    if (!SetHandleInformation(g_child_std_out_rd, HANDLE_FLAG_INHERIT, 0)) {
         ErrorExit(TEXT("Stdout SetHandleInformation")); 
     }
 
     // Create a pipe for the child process's STDIN. 
-    if (! CreatePipe(&g_child_std_in_rd, &g_child_std_in_wr, &saAttr, 0)) {
+    if (!CreatePipe(&g_child_std_in_rd, &g_child_std_in_wr, &saAttr, 0)) {
         ErrorExit(TEXT("Stdin CreatePipe")); 
     }
 
     // Ensure the write handle to the pipe for STDIN is not inherited. 
-    if ( ! SetHandleInformation(g_child_std_in_wr, HANDLE_FLAG_INHERIT, 0) ) {
+    if (!SetHandleInformation(g_child_std_in_wr, HANDLE_FLAG_INHERIT, 0)) {
         ErrorExit(TEXT("Stdin SetHandleInformation"));
     }
 
     // Create the child process. 
-    if(CreateChildProcess(&g_config)) {
-        PrintDebug( "\n->Process contents of child process STDOUT:\n\n", g_config.process_cmd_line_);
+    if (CreateChildProcess(&g_config)) {
         TrackChildProcess(g_pchild_proc_info, &g_config);
-        PrintDebug("\n->End of parent execution.\n");
-
-        //// Close handles to the child process and its primary thread.
-        //// Some applications might keep these handles to monitor the status
-        //// of the child process, for example. 
-
-        //CloseHandle(g_pchild_proc_info->hProcess);
-        //CloseHandle(g_pchild_proc_info->hThread);
-
         ReleaseAllOnExit();
     }
     return 0; 
@@ -115,20 +99,18 @@ int ParseParameters(int argc, CHAR* argv[], Config* pconfig) {
 
 // Create a child process that uses the previously created pipes for STDIN and STDOUT.
 BOOL CreateChildProcess(Config* pconfig) { 
-    //wchar_t szCmdline[]= TEXT("JustWritingOutput.exe");
     PROCESS_INFORMATION* pproc_info;
     STARTUPINFOA start_info;
     BOOL success = FALSE; 
 
     // Set up members of the PROCESS_INFORMATION structure. 
-
     pproc_info = malloc(sizeof(PROCESS_INFORMATION));
-    ZeroMemory( pproc_info, sizeof(PROCESS_INFORMATION) );
+    ZeroMemory( pproc_info, sizeof(PROCESS_INFORMATION));
 
     // Set up members of the _STARTUPINFOW structure. 
     // This structure specifies the STDIN and STDOUT handles for redirection.
 
-    ZeroMemory( &start_info, sizeof(STARTUPINFOA) );
+    ZeroMemory( &start_info, sizeof(STARTUPINFOA));
     start_info.cb = sizeof(STARTUPINFOA); 
     start_info.hStdError = g_child_std_out_wr;
     start_info.hStdOutput = g_child_std_out_wr;
@@ -136,7 +118,6 @@ BOOL CreateChildProcess(Config* pconfig) {
     start_info.dwFlags |= STARTF_USESTDHANDLES;
 
     // Create the child process. 
-    PrintDebug(pconfig->process_cmd_line_);
     success = CreateProcessA(NULL, 
         pconfig->process_cmd_line_,     // command line 
         NULL,          // process security attributes 
@@ -149,12 +130,11 @@ BOOL CreateChildProcess(Config* pconfig) {
         pproc_info);  // receives PROCESS_INFORMATION 
 
     // If an error occurs, exit the application. 
-    if ( ! success ) {
+    if (!success) {
         free(pproc_info);
         g_pchild_proc_info = NULL;
         ErrorExit(TEXT("CreateProcess"));
-    }
-    else {
+    } else {
         g_pchild_proc_info = pproc_info;
     }
 
@@ -165,41 +145,20 @@ BOOL CreateChildProcess(Config* pconfig) {
 void TearDownChildProcess(PROCESS_INFORMATION* pproc_info, Config* pconfig) {
     DWORD wfso_result;
 
-    if(!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pproc_info->dwProcessId)) {
+    if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pproc_info->dwProcessId)) {
         ErrorExit(TEXT("GenerateConsoleCtrlEvent CTRL_BREAK_EVENT"));
     }
 
-    wfso_result = WaitForSingleObject(pproc_info->hProcess, pconfig->process_wait_timeout_);
+    wfso_result = WaitForSingleObject(pproc_info->hProcess,
+                                      pconfig->process_wait_timeout_);
 
-    if(!wfso_result == WAIT_OBJECT_0) {
+    if (!wfso_result == WAIT_OBJECT_0) {
         if(wfso_result == WAIT_TIMEOUT) {
-            PrintDebug("\n->Timeout.\n");
+            fprintf(stderr, "\n->Timeout.\n");
         }
         TerminateProcess(pproc_info->hProcess, 0);
     }
 }
-
-// Read from a file and write its contents to the pipe for the child's STDIN.
-// Stop when there is no more data. 
-void WriteToPipe(HANDLE input_file) { 
-    DWORD number_of_bytes_read, number_of_bytes_written; 
-    CHAR ch_buf[BUFSIZE];
-    BOOL success = FALSE;
-
-    for (;;) { 
-        success = ReadFile(input_file, ch_buf, BUFSIZE, &number_of_bytes_read, NULL);
-        if ( ! success || number_of_bytes_read == 0 ) { break; }
-
-        success = WriteFile(g_child_std_in_wr, ch_buf, number_of_bytes_read, &number_of_bytes_written, NULL);
-        if ( ! success ) { break; }
-    } 
-
-    // Close the pipe handle so the child process stops reading. 
-
-    if ( ! CloseHandle(g_child_std_in_wr) ) {
-        ErrorExit(TEXT("StdInWr CloseHandle"));
-    }
-} 
 
 // Read output from the child process's pipe for STDOUT
 // and write to the parent process's pipe for STDOUT. 
@@ -207,7 +166,7 @@ void WriteToPipe(HANDLE input_file) {
 void TrackChildProcess(PROCESS_INFORMATION* pchild_proc_info, Config* pconfig) { 
     DWORD number_of_bytes_read, number_of_bytes_written; 
     CHAR ch_buf_small[1]; 
-    CHAR ch_buf_large[1000]; 
+    /* CHAR ch_buf_large[1000];  */
     BOOL success = FALSE;
     HANDLE parent_std_out = GetStdHandle(STD_OUTPUT_HANDLE);
     FILE* conout_file;
@@ -234,19 +193,9 @@ void TrackChildProcess(PROCESS_INFORMATION* pchild_proc_info, Config* pconfig) {
                 break;
             }
         }
-        
-        /*if(GetExitCodeProcess(pproc_info->hProcess, &proc_exit_code)) {
-            if(proc_exit_code != STILL_ACTIVE) {
-                ErrorExit(TEXT("GetExitCodeProcess"));
-                break;
-            }
-        }*/
-
-        /*success = ReadFile(hParentStdIn, ch_buf, 1, &number_of_bytes_read, NULL);
-        if ( ! success || number_of_bytes_read == 0 ) break;*/
 
         success = ReadFile( g_child_std_out_rd, ch_buf_small, 1, &number_of_bytes_read, NULL);
-        if( ! success || number_of_bytes_read == 0 ) {
+        if(!success || number_of_bytes_read == 0) {
             break;
         }
 
@@ -255,28 +204,21 @@ void TrackChildProcess(PROCESS_INFORMATION* pchild_proc_info, Config* pconfig) {
 
         _flushall();
 
-        if (! success ) break; 
+        if (! success) break;
     } 
 
     if (conout_file) {
         fclose(conout_file);
     }
 
-    if(should_end) {
+    if (should_end) {
         TearDownChildProcess(pchild_proc_info, pconfig);
-
-        //success = ReadFile(g_child_std_out_rd, ch_buf_large, 1000, &number_of_bytes_read, NULL);
-        //if( success && number_of_bytes_read != 0 ) {
-        //    success = WriteFile(parent_std_out, ch_buf_large, 
-        //    number_of_bytes_read, &number_of_bytes_written, NULL);
-        //}
-        //_flushall();
     }
 } 
 
 // Fires when our procss s asked to close.
 BOOL WINAPI OnConsoleCtrlEvent(DWORD ctrl_type) {
-    PrintDebug("Parent OnConsoleCtrlEvent");
+    (void)ctrl_type;
 
     TearDownChildProcess(g_pchild_proc_info, &g_config);
     ReleaseAllOnExit();
@@ -285,7 +227,7 @@ BOOL WINAPI OnConsoleCtrlEvent(DWORD ctrl_type) {
 }
 
 // Free allocated resources.
-void ReleaseAllOnExit() {
+void ReleaseAllOnExit(void) {
     if(g_pchild_proc_info) {
         free(g_pchild_proc_info);
         g_pchild_proc_info = NULL;
@@ -301,47 +243,20 @@ void ReleaseAllOnExit() {
 // and exit from the application.
 void ErrorExit(PTSTR lpszFunction) { 
     LPVOID msg_buf;
-    LPVOID display_buf;
     DWORD last_error = GetLastError(); 
 
-    FormatMessageA(
-                FORMAT_MESSAGE_ALLOCATE_BUFFER | 
-                FORMAT_MESSAGE_FROM_SYSTEM |
-                FORMAT_MESSAGE_IGNORE_INSERTS,
-                NULL,
-                last_error,
-                MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                (LPSTR) &msg_buf,
-                0, NULL );
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                   FORMAT_MESSAGE_FROM_SYSTEM |
+                   FORMAT_MESSAGE_IGNORE_INSERTS,
+                   NULL,
+                   last_error,
+                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                   (LPSTR) &msg_buf,
+                   0, NULL);
 
-    display_buf = (LPVOID)LocalAlloc(LMEM_ZEROINIT, (strlen((char*)msg_buf)+strlen((char*)lpszFunction)+40)*sizeof(char)); 
-    wsprintfA((char*)display_buf, "%s failed with error %d: %s", lpszFunction, last_error, msg_buf);
+    fprintf(stderr, "%s failed with error %d: %s", lpszFunction,
+            (int)last_error, (const char*)msg_buf);
 
-    PrintDebug((char*)display_buf);
-#ifdef SHOW_MESSAGE_BOX_ON_ERROR_EXIT
-    MessageBoxA(NULL, (char*)display_buf, "Error", MB_OK); 
-#endif
     LocalFree(msg_buf);
-    LocalFree(display_buf);
     ExitProcess(1);
-}
-
-void PrintDebug(const char* debug_Info, ...) {
-    int j;
-    LPVOID display_buf;
-
-#ifdef DEBUG
-    //printf(debug_Info);
-
-    if(g_log_file == NULL) {
-        g_log_file = fopen("log.txt", "wt+");
-    }
-
-    if(g_log_file) {
-        display_buf = (LPVOID)LocalAlloc(LMEM_ZEROINIT, 1000);
-        wsprintfA((char*)display_buf, debug_Info);
-        
-        fwrite((char*)display_buf, sizeof(char), strlen((char*)display_buf), g_log_file); 
-    }
-#endif
 }
