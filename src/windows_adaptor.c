@@ -230,6 +230,7 @@ BOOL WINAPI OnConsoleCtrlEvent(DWORD ctrl_type) {
 
 // Waits until process exits.
 DWORD WINAPI WaitUntillChildProcessExits(LPVOID param) {
+    (void)param;
     DWORD exit_code;
 
     WaitForSingleObject(g_pchild_proc_info->hProcess, INFINITE);
