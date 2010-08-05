@@ -19,8 +19,6 @@ typedef struct ConfigType
 
 static HANDLE g_child_std_in_rd;
 static HANDLE g_child_std_in_wr;
-static HANDLE g_child_std_out_rd;
-static HANDLE g_child_std_out_wr;
 
 static Config g_config;
 static PROCESS_INFORMATION* g_pchild_proc_info;
@@ -54,16 +52,6 @@ int _tmain(int argc, CHAR *argv[]) {
     saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
     saAttr.bInheritHandle = TRUE;
     saAttr.lpSecurityDescriptor = NULL;
-
-    // Create a pipe for the child process's STDOUT.
-    if (!CreatePipe(&g_child_std_out_rd, &g_child_std_out_wr, &saAttr, 0)) {
-        ErrorExit(TEXT("StdoutRd CreatePipe"));
-    }
-
-    // Ensure the read handle to the pipe for STDOUT is not inherited.
-    if (!SetHandleInformation(g_child_std_out_rd, HANDLE_FLAG_INHERIT, 0)) {
-        ErrorExit(TEXT("Stdout SetHandleInformation"));
-    }
 
     // Create a pipe for the child process's STDIN.
     if (!CreatePipe(&g_child_std_in_rd, &g_child_std_in_wr, &saAttr, 0)) {
@@ -122,16 +110,16 @@ BOOL CreateChildProcess(Config* pconfig) {
     STARTUPINFOA start_info;
     BOOL success = FALSE;
     HANDLE parent_std_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE parent_std_err = GetStdHandle(STD_ERROR_HANDLE);
 
     // Set up members of the PROCESS_INFORMATION structure.
     pproc_info = calloc(1, sizeof(PROCESS_INFORMATION));
 
     // Set up members of the _STARTUPINFOW structure.
     // This structure specifies the STDIN and STDOUT handles for redirection.
-
     ZeroMemory( &start_info, sizeof(STARTUPINFOA));
     start_info.cb = sizeof(STARTUPINFOA);
-    start_info.hStdError = g_child_std_out_wr;
+    start_info.hStdError = parent_std_err;
     start_info.hStdOutput = parent_std_out;
     start_info.hStdInput = g_child_std_in_rd;
     start_info.dwFlags |= STARTF_USESTDHANDLES;
@@ -207,14 +195,6 @@ void TearDownChildProcess(Config* pconfig) {
 void TrackChildProcess(Config* pconfig) {
     DWORD thread_id;
     int ch;
-
-    // Close the write end of the pipe before reading from the
-    // read end of the pipe, to control child process execution.
-    // The pipe is assumed to have enough buffer space to hold the
-    // data the child process has already written to it.
-    if (!CloseHandle(g_child_std_out_wr)) {
-        ErrorExit(TEXT("StdOutWr CloseHandle"));
-    }
 
     // Create a thread
     g_hchild_tracking_thread = CreateThread(
