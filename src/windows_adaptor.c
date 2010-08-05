@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <windows.h>
+#include <winuser.h>
 #include <tchar.h>
 #include <conio.h>
 #include <stdio.h>
@@ -159,16 +160,30 @@ BOOL CreateChildProcess(Config* pconfig) {
     return success;
 }
 
+// Posts WM_CLOSE to given hwnd if its process it matches child_pid.
+BOOL CALLBACK TerminateAppEnum(HWND hwnd, LPARAM child_pid) {
+    DWORD process_id;
+
+    GetWindowThreadProcessId(hwnd, &process_id);
+
+    if(process_id == (DWORD)child_pid) {
+        PostMessage(hwnd, WM_CLOSE, 0, 0);
+    }
+
+    return TRUE;
+}
+
 // Asks child process to shutdown. If it is unable to shutdown after some time - kills it.
 void TearDownChildProcess(Config* pconfig) {
     DWORD wfso_result;
 
     EnterCriticalSection(&g_tear_down_crit);
     if(g_pchild_proc_info) {
-        if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, g_pchild_proc_info->dwProcessId)) {
-            ErrorExit(TEXT("GenerateConsoleCtrlEvent CTRL_BREAK_EVENT"));
-        }
-
+        // Post WM_CLOSE to all windows whose PID matches child process's.
+        EnumWindows((WNDENUMPROC)TerminateAppEnum, (LPARAM)g_pchild_proc_info->dwProcessId);
+        // Send ctrl + break event to ask app to close.
+        GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, g_pchild_proc_info->dwProcessId);
+        // Wait for process to exit.
         wfso_result = WaitForSingleObject(g_pchild_proc_info->hProcess,
                                           pconfig->process_wait_timeout_msec_);
 
@@ -230,7 +245,6 @@ BOOL WINAPI OnConsoleCtrlEvent(DWORD ctrl_type) {
 
 // Waits until process exits.
 DWORD WINAPI WaitUntillChildProcessExits(LPVOID param) {
-    (void)param;
     DWORD exit_code;
 
     WaitForSingleObject(g_pchild_proc_info->hProcess, INFINITE);
