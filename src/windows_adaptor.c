@@ -88,14 +88,26 @@ int ParseParameters(int argc, CHAR* argv[], Config* pconfig) {
 
     for (i = 3; i < argc; ++i) {
         size_t newsize = currsize + strlen(argv[i]) + 1;
+        char *space_or_tab;
+        space_or_tab = strchr(argv[i], ' ');
+        space_or_tab = space_or_tab == NULL ? strchr(argv[i], '\t') : space_or_tab;
+        if(space_or_tab != NULL){
+            newsize += 2;
+        }
         pconfig->process_cmd_line_ = realloc(pconfig->process_cmd_line_,
                                              newsize);
         if (pconfig->process_cmd_line_ == NULL) {
             fprintf(stderr, "Failed to allocate buffer\n");
             return -3;
         }
-        sprintf(pconfig->process_cmd_line_ + currsize - 1, " %s",
+
+        if(space_or_tab != NULL){
+            sprintf(pconfig->process_cmd_line_ + currsize - 1, " \"%s\"",
                 argv[i]);
+        } else {
+            sprintf(pconfig->process_cmd_line_ + currsize - 1, " %s",
+                argv[i]);
+        }
         currsize = newsize;
     }
 
